@@ -85,7 +85,7 @@ runButton.addEventListener("click", async (ev) => {
 		} else {
 			while (scs.running) {
 				const res = scs.step();
-				if (scs.stepCount > 1000) throw new Error("Too many steps, possible infinite loop");
+				// if (scs.stepCount > 1000) throw new Error("Too many steps, possible infinite loop");
 				if (cspeed === 5) {
 					if (scs.stepCount % 100 === 0) {
 						updateOutput();
