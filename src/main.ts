@@ -69,7 +69,6 @@ runButton.addEventListener("click", async (ev) => {
 		if (cspeed === 0) {
 			updateOutput();
 			stepButton.disabled = false;
-			console.log(stepButton.disabled);
 			stepButton.addEventListener("click", (ev) => {
 				if (!scs.running) return;
 				try {
@@ -87,9 +86,10 @@ runButton.addEventListener("click", async (ev) => {
 				const res = scs.step();
 				// if (scs.stepCount > 1000) throw new Error("Too many steps, possible infinite loop");
 				if (cspeed === 5) {
-					if (scs.stepCount % 100 === 0) {
+					if (scs.stepCount % 10000 === 0) {
+						console.log("updated");
 						updateOutput();
-						hilightOutput(res);
+						await new Promise((resolve) => setTimeout(resolve, 0));
 					}
 				} else {
 					updateOutput();
@@ -193,9 +193,8 @@ function genOutput(length: number) {
 			  }
 			| undefined,
 	) => {
-		console.log(target);
 		if (target == null) return;
-		for (const el of outputEls){
+		for (const el of outputEls) {
 			el.parent.classList.remove("pc-hilight");
 			el.parent.classList.remove("affect-highlight");
 		}
