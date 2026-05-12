@@ -8,50 +8,66 @@
 </head>
 
 <body>
-	<h1>A Small Computer Simulator Visualizer</h1>
-	<div id="app">
-		<div id="left">
-			<div id="writehere">Write code here</div>
+	<header class="app-header">
+		<h1>A Small Computer Simulator Visualizer</h1>
+	</header>
+	<main id="app">
+		<section id="left" class="panel" aria-label="Editor">
+			<div class="panel-header">
+				<label id="writehere" class="panel-title" for="program">Program</label>
+				<div id="codeb" class="panel-actions" aria-label="Editor visibility">
+					<button type="button" id="hide-code" class="hidden">Hide</button>
+					<button type="button" id="show-code" class="show">Show</button>
+				</div>
+			</div>
 			<div id="inputs">
-				<textarea id="linenum" readonly></textarea>
-				<textarea id="program"></textarea>
+				<textarea id="linenum" readonly aria-hidden="true" tabindex="-1"></textarea>
+				<textarea id="program" spellcheck="false"></textarea>
 			</div>
-			<div id="codeb">
-				<button type="button" class="hidden" onclick="document.body.classList.add('nocode')">Hidden</button>
-				<button type="button" class="show" onclick="document.body.classList.remove('nocode')">Show</button>
+		</section>
+		<section id="outputs" class="panel" aria-label="Machine output">
+			<div class="panel-header">
+				<div class="panel-title">Output</div>
 			</div>
-		</div>
-		<div id="outputs">
-			<div id="memories"></div>
-			<div id="registers">
-				<div id="steps">
-					<div class="label">steps</div>
-					<div class="value">0</div>
-				</div>
-				<div id="pc">
-					<div class="label">pc</div>
-					<div class="value">0</div>
-				</div>
-				<div id="acc">
-					<div class="label">acc</div>
-					<div class="value">0</div>
-				</div>
-				<div id="idx">
-					<div class="label">idx</div>
-					<div class="value">0</div>
-				</div>
-				<div id="controls">
-					<button id="run">Run</button>
-					<button id="step" disabled>Step</button>
-					<button id="stop">Reset</button>
-					<div>
-						<div id="speedlabel"></div>
-						<input type="range" id="speed" min="0" max="5" step="1">
+			<div class="output-body">
+				<div id="memories" role="table" aria-label="Memory"></div>
+				<div id="registers" aria-label="Registers and controls">
+					<div class="register-list">
+						<div id="steps" class="register">
+							<div class="label">steps</div>
+							<div class="value">0</div>
+						</div>
+						<div id="pc" class="register">
+							<div class="label">pc</div>
+							<div class="value">0</div>
+						</div>
+						<div id="acc" class="register">
+							<div class="label">acc</div>
+							<div class="value">0</div>
+						</div>
+						<div id="idx" class="register">
+							<div class="label">idx</div>
+							<div class="value">0</div>
+						</div>
+					</div>
+					<div id="controls">
+						<div class="control-buttons">
+							<button id="run" type="button">Run</button>
+							<button id="step" type="button" disabled>Step</button>
+							<button id="stop" type="button">Reset</button>
+						</div>
+						<div class="speed-control">
+							<div class="speed-header">
+								<span class="speed-title">Speed</span>
+								<div id="speedlabel" aria-live="polite"></div>
+							</div>
+							<input type="range" id="speed" min="0" max="5" step="1" aria-label="Speed">
+						</div>
 					</div>
 				</div>
 			</div>
-		</div>
-	</div>
+		</section>
+	</main>
 	<script type="module" src="/src/main.ts"></script>
 </body>
 

@@ -1,6 +1,6 @@
 import "./style.css";
 import { ScsMachine } from "./scs-machine";
-import { createOutputRenderer, resetOutput, type OutputBindings } from "./ui/output";
+import { createOutputRenderer, resetOutput, type OutputBindings, type OutputRenderer } from "./ui/output";
 import { clamp } from "./util";
 
 type DomRefs = {
@@ -11,6 +11,8 @@ type DomRefs = {
 	stopButton: HTMLButtonElement;
 	speedInput: HTMLInputElement;
 	speedLabel: HTMLDivElement;
+	hideCodeButton: HTMLButtonElement;
+	showCodeButton: HTMLButtonElement;
 };
 
 const dom = getDomRefs();
@@ -26,41 +28,63 @@ resetOutput(outputBindings);
 
 const speedDelaysMs = [0, 1000, 500, 100, 50, 0];
 let speedIndex = Number(dom.speedInput.value);
-dom.speedLabel.textContent = formatSpeedLabel(speedIndex, speedDelaysMs);
+speedIndex = clamp(0, speedIndex, speedDelaysMs.length - 1);
+updateSpeedLabel();
 
 let lineCount = initializeLineNumbers(dom.programInput, dom.lineNumberInput);
+syncLineNumberWidth(dom.lineNumberInput);
+resizeEditorContent(dom.programInput, dom.lineNumberInput);
+
+let activeMachine: ScsMachine | null = null;
+let activeRenderer: OutputRenderer | null = null;
+let manualReset = false;
+
+dom.hideCodeButton.addEventListener("click", () => setCodeVisibility(false));
+dom.showCodeButton.addEventListener("click", () => setCodeVisibility(true));
 
 dom.programInput.addEventListener("input", (ev) => {
 	const target = ev.target as HTMLTextAreaElement;
-	resizeEditorContainer(target);
 	const nextCount = target.value.split("\n").length;
-	if (lineCount === nextCount) return;
-	lineCount = nextCount;
-	updateLineNumbers(dom.lineNumberInput, nextCount);
-	syncLineNumberWidth(dom.lineNumberInput);
+	if (lineCount !== nextCount) {
+		lineCount = nextCount;
+		updateLineNumbers(dom.lineNumberInput, nextCount);
+		syncLineNumberWidth(dom.lineNumberInput);
+	}
+	resizeEditorContent(dom.programInput, dom.lineNumberInput);
 });
 
 dom.speedInput.addEventListener("input", (ev) => {
 	const target = ev.target as HTMLInputElement;
 	speedIndex = clamp(0, Number(target.value), speedDelaysMs.length - 1);
-	dom.speedLabel.textContent = formatSpeedLabel(speedIndex, speedDelaysMs);
+	updateSpeedLabel();
+});
+
+dom.stepButton.addEventListener("click", () => {
+	if (!activeMachine || !activeRenderer || !activeMachine.running) return;
+	try {
+		const res = activeMachine.step();
+		activeRenderer.update(activeMachine.getOutput(), activeMachine.getRegisters());
+		activeRenderer.highlight(res);
+	} catch (e) {
+		window.alert(e instanceof Error ? e.message : String(e));
+		stopAndReset();
+	}
 });
 
 dom.runButton.addEventListener("click", async () => {
+	manualReset = false;
 	resetOutput(outputBindings);
-	dom.runButton.disabled = true;
-	dom.speedInput.disabled = true;
+	setUiRunning();
 	const selectedSpeed = speedIndex;
 	const machine = new ScsMachine(dom.programInput.value);
+	activeMachine = machine;
 	const onStop = () => {
-		machine.running = false;
-		dom.runButton.disabled = false;
-		dom.stepButton.disabled = true;
-		dom.speedInput.disabled = false;
+		if (activeMachine !== machine) return;
+		setUiIdle();
 	};
 	machine.onStop = onStop;
-	dom.stopButton.addEventListener("click", onStop, { once: true });
 	const renderer = createOutputRenderer(outputBindings, machine.lineCount);
+	activeRenderer = renderer;
 	const updateOutput = () => renderer.update(machine.getOutput(), machine.getRegisters());
 	try {
 		machine.compile();
@@ -68,25 +92,12 @@ dom.runButton.addEventListener("click", async () => {
 		if (selectedSpeed === 0) {
 			updateOutput();
 			dom.stepButton.disabled = false;
-			dom.stepButton.addEventListener("click", () => {
-				if (!machine.running) return;
-				try {
-					const res = machine.step();
-					updateOutput();
-					renderer.highlight(res);
-				} catch (e) {
-					window.alert(e instanceof Error ? e.message : String(e));
-					onStop();
-					resetOutput(outputBindings);
-				}
-			});
 		} else {
 			while (machine.running) {
 				const res = machine.step();
 				// if (machine.stepCount > 1000) throw new Error("Too many steps, possible infinite loop");
 				if (selectedSpeed === 5) {
 					if (machine.stepCount % 10000 === 0) {
-						console.log("updated");
 						updateOutput();
 						await new Promise((resolve) => setTimeout(resolve, 0));
 					}
@@ -96,22 +107,25 @@ dom.runButton.addEventListener("click", async () => {
 					await new Promise((resolve) => setTimeout(resolve, speedDelaysMs[selectedSpeed]));
 				}
 			}
-			updateOutput();
+			if (!manualReset) {
+				updateOutput();
+			}
+			onStop();
 		}
 	} catch (e) {
 		window.alert(e instanceof Error ? e.message : String(e));
-		onStop();
-		resetOutput(outputBindings);
+		stopAndReset();
 	} finally {
-		dom.stopButton.removeEventListener("click", onStop);
+		if (selectedSpeed !== 0 && activeMachine === machine) {
+			activeMachine = null;
+			activeRenderer = null;
+		}
+		manualReset = false;
 	}
 });
 
 dom.stopButton.addEventListener("click", () => {
-	resetOutput(outputBindings);
-	dom.runButton.disabled = false;
-	dom.stepButton.disabled = true;
-	dom.speedInput.disabled = false;
+	stopAndReset();
 });
 
 function getDomRefs(): DomRefs {
@@ -123,6 +137,8 @@ function getDomRefs(): DomRefs {
 		stopButton: document.querySelector<HTMLButtonElement>("#stop")!,
 		speedInput: document.querySelector<HTMLInputElement>("#speed")!,
 		speedLabel: document.querySelector<HTMLDivElement>("#speedlabel")!,
+		hideCodeButton: document.querySelector<HTMLButtonElement>("#hide-code")!,
+		showCodeButton: document.querySelector<HTMLButtonElement>("#show-code")!,
 	};
 }
 
@@ -141,9 +157,41 @@ function syncLineNumberWidth(lineNumberInput: HTMLTextAreaElement) {
 	lineNumberInput.style.width = `${Math.max(30, lineNumberInput.scrollWidth + 10)}px`;
 }
 
-function resizeEditorContainer(programInput: HTMLTextAreaElement) {
-	programInput.parentElement!.style.height = "0px";
-	programInput.parentElement!.style.height = `${programInput.scrollHeight + 1}px`;
+function resizeEditorContent(programInput: HTMLTextAreaElement, lineNumberInput: HTMLTextAreaElement) {
+	programInput.style.height = "0px";
+	programInput.style.height = `${programInput.scrollHeight + 1}px`;
+	lineNumberInput.style.height = programInput.style.height;
+}
+
+function updateSpeedLabel() {
+	dom.speedLabel.textContent = formatSpeedLabel(speedIndex, speedDelaysMs);
+}
+
+function setCodeVisibility(visible: boolean) {
+	document.body.classList.toggle("nocode", !visible);
+}
+
+function setUiRunning() {
+	dom.runButton.disabled = true;
+	dom.stepButton.disabled = true;
+	dom.speedInput.disabled = true;
+}
+
+function setUiIdle() {
+	dom.runButton.disabled = false;
+	dom.stepButton.disabled = true;
+	dom.speedInput.disabled = false;
+}
+
+function stopAndReset() {
+	manualReset = true;
+	if (activeMachine) {
+		activeMachine.running = false;
+	}
+	activeMachine = null;
+	activeRenderer = null;
+	resetOutput(outputBindings);
+	setUiIdle();
 }
 
 function formatSpeedLabel(value: number, speedDelaysMs: number[]) {
