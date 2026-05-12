@@ -61,7 +61,7 @@ runButton.addEventListener("click", async (ev) => {
 	};
 	scs.onStop = onStop;
 	stopButton.addEventListener("click", onStop, { once: true });
-	const updateOutputInner = genOutput(scs.lineCount);
+	const [updateOutputInner, hilightOutput] = genOutput(scs.lineCount);
 	const updateOutput = () => updateOutputInner(scs.getOutput(), scs.getRegisters());
 	try {
 		scs.compile();
@@ -73,8 +73,9 @@ runButton.addEventListener("click", async (ev) => {
 			stepButton.addEventListener("click", (ev) => {
 				if (!scs.running) return;
 				try {
-					scs.step();
+					const res = scs.step();
 					updateOutput();
+					hilightOutput(res);
 				} catch (e) {
 					window.alert(e instanceof Error ? e.message : String(e));
 					onStop();
@@ -83,14 +84,16 @@ runButton.addEventListener("click", async (ev) => {
 			});
 		} else {
 			while (scs.running) {
-				scs.step();
+				const res = scs.step();
 				if (scs.stepCount > 1000) throw new Error("Too many steps, possible infinite loop");
 				if (cspeed === 5) {
 					if (scs.stepCount % 100 === 0) {
 						updateOutput();
+						hilightOutput(res);
 					}
 				} else {
 					updateOutput();
+					hilightOutput(res);
 					await new Promise((resolve) => setTimeout(resolve, speeds[cspeed]));
 				}
 			}
@@ -157,7 +160,7 @@ function genOutput(length: number) {
 		outputEls.push({ parent, addr, code, memory, mem10 });
 		output.appendChild(parent);
 	}
-	return (
+	const update = (
 		memdata: {
 			addr: number;
 			memory: number;
@@ -182,4 +185,32 @@ function genOutput(length: number) {
 		accOutput.textContent = regdata.acc.toString(10);
 		idxOutput.textContent = regdata.idx.toString(10);
 	};
+	const hilight = (
+		target:
+			| {
+					pc: number;
+					affects: (number | "acc" | "idx")[];
+			  }
+			| undefined,
+	) => {
+		console.log(target);
+		if (target == null) return;
+		for (const el of outputEls){
+			el.parent.classList.remove("pc-hilight");
+			el.parent.classList.remove("affect-highlight");
+		}
+		accOutput.classList.remove("affect-highlight");
+		idxOutput.classList.remove("affect-highlight");
+		outputEls[target.pc].parent.classList.add("pc-hilight");
+		for (const affect of target.affects) {
+			if (affect === "acc") {
+				accOutput.classList.add("affect-highlight");
+			} else if (affect === "idx") {
+				idxOutput.classList.add("affect-highlight");
+			} else {
+				outputEls[affect].parent.classList.add("affect-highlight");
+			}
+		}
+	};
+	return [update, hilight] as const;
 }

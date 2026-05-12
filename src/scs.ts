@@ -79,7 +79,7 @@ export class SCS {
 		const instruction = this.memory[this.pc];
 		const opcode = ((instruction >> 16) & 0xff) as OpCode;
 		const arg = instruction & 0xffff;
-		this.exec(opcode, arg);
+		return { pc: this.pc, affects: this.exec(opcode, arg) };
 	}
 	getRegisters() {
 		return {
@@ -93,171 +93,175 @@ export class SCS {
 		return this.memory.map((v, i) => ({ addr: i, memory: v, code: this.lines[i] }));
 	}
 
-	private exec(opcode: OpCode, arg: number) {
+	private exec(opcode: OpCode, arg: number): (number | "acc" | "idx")[] {
 		switch (opcode) {
 			case 0x00:
 			case 0x01: {
 				// nop
 				this.pc++;
-				break;
+				return [];
 			}
 			case 0x02:
 			case 0x03: {
 				// stop
 				this.running = false;
 				this.onStop?.();
-				break;
+				return [];
 			}
 			case 0x04: {
 				// load
 				this.acc = arg;
 				this.pc++;
-				break;
+				return ["acc"];
 			}
 			case 0x05: {
 				// load
 				this.acc = this.memory[arg];
 				this.pc++;
-				break;
+				return ["acc", arg];
 			}
 			case 0x06: {
 				// loadx
 				this.acc = arg + this.idx;
 				this.pc++;
-				break;
+				return ["acc"];
 			}
 			case 0x07: {
 				// loadx
 				this.acc = this.memory[arg + this.idx];
 				this.pc++;
-				break;
+				return ["acc", arg + this.idx];
 			}
 			case 0x08:
 			case 0x09: {
 				// store
 				this.memory[arg] = this.acc;
 				this.pc++;
-				break;
+				return [arg, "acc"];
 			}
 			case 0x0a:
 			case 0x0b: {
 				// storex
 				this.memory[arg + this.idx] = this.acc;
 				this.pc++;
-				break;
+				return [arg + this.idx, "acc"];
 			}
 			case 0x0c: {
 				// add
 				this.acc += arg;
 				this.pc++;
-				break;
+				return ["acc"];
 			}
 			case 0x0d: {
 				// add
 				this.acc += this.memory[arg];
 				this.pc++;
-				break;
+				return ["acc", arg];
 			}
 			case 0x0e: {
 				// sub
 				this.acc -= arg;
 				this.pc++;
-				break;
+				return ["acc"];
 			}
 			case 0x0f: {
 				// sub
 				this.acc -= this.memory[arg];
 				this.pc++;
-				break;
+				return ["acc", arg];
 			}
 			case 0x10: {
 				// iload
 				this.idx = arg;
 				this.pc++;
-				break;
+				return ["idx"];
 			}
 			case 0x11: {
 				// iload
 				this.idx = this.memory[arg];
 				this.pc++;
-				break;
+				return ["idx", arg];
 			}
 			case 0x12: {
 				// iadd
 				this.idx += arg;
 				this.pc++;
-				break;
+				return ["idx"];
 			}
 			case 0x13: {
 				// iadd
 				this.idx += this.memory[arg];
 				this.pc++;
-				break;
+				return ["idx", arg];
 			}
 			case 0x14: {
 				// isub
 				this.idx -= arg;
 				this.pc++;
-				break;
+				return ["idx"];
 			}
 			case 0x15: {
 				// isub
 				this.idx -= this.memory[arg];
 				this.pc++;
-				break;
+				return ["idx", arg];
 			}
 			case 0x16:
 			case 0x17: {
 				// ifz
 				if (this.acc === 0) {
 					this.pc = arg;
+					return [arg];
 				} else {
 					this.pc++;
+					return [];
 				}
-				break;
 			}
 			case 0x18:
 			case 0x19: {
 				// ifnz
 				if (this.acc !== 0) {
 					this.pc = arg;
+					return [arg];
 				} else {
 					this.pc++;
+					return [];
 				}
-				break;
 			}
 			case 0x1a:
 			case 0x1b: {
 				// ifp
 				if (this.acc > 0) {
 					this.pc = arg;
+					return [arg];
 				} else {
 					this.pc++;
+					return [];
 				}
-				break;
 			}
 			case 0x1c:
 			case 0x1d: {
 				// ifn
 				if (this.acc < 0) {
 					this.pc = arg;
+					return [arg];
 				} else {
 					this.pc++;
+					return [];
 				}
-				break;
 			}
 			case 0x1e:
 			case 0x1f: {
 				// jump
 				this.pc = arg;
-				break;
+				return [arg];
 			}
 			case 0x20:
 			case 0x21: {
 				// neg
 				this.acc *= -1;
 				this.pc++;
-				break;
+				return ["acc"];
 			}
 			default: {
 				const n: never = opcode;
