@@ -1,100 +1,99 @@
-import { SCS } from "./scs";
 import "./style.css";
+import { ScsMachine } from "./scs-machine";
+import { createOutputRenderer, resetOutput, type OutputBindings } from "./ui/output";
 import { clamp } from "./util";
 
-const programTextArea = document.querySelector<HTMLTextAreaElement>("#program")!;
-const lineNumTextArea = document.querySelector<HTMLTextAreaElement>("#linenum")!;
+type DomRefs = {
+	programInput: HTMLTextAreaElement;
+	lineNumberInput: HTMLTextAreaElement;
+	runButton: HTMLButtonElement;
+	stepButton: HTMLButtonElement;
+	stopButton: HTMLButtonElement;
+	speedInput: HTMLInputElement;
+	speedLabel: HTMLDivElement;
+};
 
-const runButton = document.querySelector<HTMLButtonElement>("#run")!;
-const stepButton = document.querySelector<HTMLButtonElement>("#step")!;
-const stopButton = document.querySelector<HTMLButtonElement>("#stop")!;
+const dom = getDomRefs();
+const outputBindings: OutputBindings = {
+	output: document.querySelector<HTMLDivElement>("#memories")!,
+	stepsOutput: document.querySelector<HTMLDivElement>("#steps>.value")!,
+	pcOutput: document.querySelector<HTMLDivElement>("#pc>.value")!,
+	accOutput: document.querySelector<HTMLDivElement>("#acc>.value")!,
+	idxOutput: document.querySelector<HTMLDivElement>("#idx>.value")!,
+};
 
-const output = document.querySelector<HTMLDivElement>("#memories")!;
-const stepsOutput = document.querySelector<HTMLDivElement>("#steps>.value")!;
-const pcOutput = document.querySelector<HTMLDivElement>("#pc>.value")!;
-const accOutput = document.querySelector<HTMLDivElement>("#acc>.value")!;
-const idxOutput = document.querySelector<HTMLDivElement>("#idx>.value")!;
+resetOutput(outputBindings);
 
-const speedInput = document.querySelector<HTMLInputElement>("#speed")!;
-const speedLabel = document.querySelector<HTMLLabelElement>("#speedlabel")!;
-clearOutput();
+const speedDelaysMs = [0, 1000, 500, 100, 50, 0];
+let speedIndex = Number(dom.speedInput.value);
+dom.speedLabel.textContent = formatSpeedLabel(speedIndex, speedDelaysMs);
 
-let lineCount = programTextArea.value.split("\n").length;
-lineNumTextArea.value = Array.from({ length: lineCount }, (_, i) => i).join("\n");
-programTextArea.addEventListener("input", (ev) => {
+let lineCount = initializeLineNumbers(dom.programInput, dom.lineNumberInput);
+
+dom.programInput.addEventListener("input", (ev) => {
 	const target = ev.target as HTMLTextAreaElement;
-	target.parentElement!.style.height = "0px";
-	target.parentElement!.style.height = `${target.scrollHeight + 1}px`;
-	const nc = target.value.split("\n").length;
-	if (lineCount === nc) return;
-	lineCount = nc;
-	lineNumTextArea.value = Array.from({ length: nc }, (_, i) => i).join("\n");
-	lineNumTextArea.style.width = "0px";
-	lineNumTextArea.style.width = `${Math.max(30, lineNumTextArea.scrollWidth + 10)}px`;
+	resizeEditorContainer(target);
+	const nextCount = target.value.split("\n").length;
+	if (lineCount === nextCount) return;
+	lineCount = nextCount;
+	updateLineNumbers(dom.lineNumberInput, nextCount);
+	syncLineNumberWidth(dom.lineNumberInput);
 });
-let speed = 0;
-const speeds = [0, 1000, 500, 100, 50, 0];
-speedInput.addEventListener("input", (ev) => {
-	const target = ev.target as HTMLInputElement;
-	speed = clamp(0, Number(target.value), speeds.length - 1);
-	speedLabel.textContent = parseSpeedView(speed);
-});
-speed = Number(speedInput.value);
-speedLabel.textContent = parseSpeedView(speed);
-function parseSpeedView(value: number) {
-	if (value === 0) return "ステップ実行";
-	if (value === 5) return "最速";
-	return `${speeds[value]}ms/step`;
-}
 
-runButton.addEventListener("click", async (ev) => {
-	clearOutput();
-	runButton.disabled = true;
-	speedInput.disabled = true;
-	const cspeed = speed;
-	const scs = new SCS(programTextArea.value);
+dom.speedInput.addEventListener("input", (ev) => {
+	const target = ev.target as HTMLInputElement;
+	speedIndex = clamp(0, Number(target.value), speedDelaysMs.length - 1);
+	dom.speedLabel.textContent = formatSpeedLabel(speedIndex, speedDelaysMs);
+});
+
+dom.runButton.addEventListener("click", async () => {
+	resetOutput(outputBindings);
+	dom.runButton.disabled = true;
+	dom.speedInput.disabled = true;
+	const selectedSpeed = speedIndex;
+	const machine = new ScsMachine(dom.programInput.value);
 	const onStop = () => {
-		scs.running = false;
-		runButton.disabled = false;
-		stepButton.disabled = true;
-		speedInput.disabled = false;
+		machine.running = false;
+		dom.runButton.disabled = false;
+		dom.stepButton.disabled = true;
+		dom.speedInput.disabled = false;
 	};
-	scs.onStop = onStop;
-	stopButton.addEventListener("click", onStop, { once: true });
-	const [updateOutputInner, hilightOutput] = genOutput(scs.lineCount);
-	const updateOutput = () => updateOutputInner(scs.getOutput(), scs.getRegisters());
+	machine.onStop = onStop;
+	dom.stopButton.addEventListener("click", onStop, { once: true });
+	const renderer = createOutputRenderer(outputBindings, machine.lineCount);
+	const updateOutput = () => renderer.update(machine.getOutput(), machine.getRegisters());
 	try {
-		scs.compile();
-		scs.running = true;
-		if (cspeed === 0) {
+		machine.compile();
+		machine.running = true;
+		if (selectedSpeed === 0) {
 			updateOutput();
-			stepButton.disabled = false;
-			stepButton.addEventListener("click", (ev) => {
-				if (!scs.running) return;
+			dom.stepButton.disabled = false;
+			dom.stepButton.addEventListener("click", () => {
+				if (!machine.running) return;
 				try {
-					const res = scs.step();
+					const res = machine.step();
 					updateOutput();
-					hilightOutput(res);
+					renderer.highlight(res);
 				} catch (e) {
 					window.alert(e instanceof Error ? e.message : String(e));
 					onStop();
-					clearOutput();
+					resetOutput(outputBindings);
 				}
 			});
 		} else {
-			while (scs.running) {
-				const res = scs.step();
-				// if (scs.stepCount > 1000) throw new Error("Too many steps, possible infinite loop");
-				if (cspeed === 5) {
-					if (scs.stepCount % 10000 === 0) {
+			while (machine.running) {
+				const res = machine.step();
+				// if (machine.stepCount > 1000) throw new Error("Too many steps, possible infinite loop");
+				if (selectedSpeed === 5) {
+					if (machine.stepCount % 10000 === 0) {
 						console.log("updated");
 						updateOutput();
 						await new Promise((resolve) => setTimeout(resolve, 0));
 					}
 				} else {
 					updateOutput();
-					hilightOutput(res);
-					await new Promise((resolve) => setTimeout(resolve, speeds[cspeed]));
+					renderer.highlight(res);
+					await new Promise((resolve) => setTimeout(resolve, speedDelaysMs[selectedSpeed]));
 				}
 			}
 			updateOutput();
@@ -102,114 +101,53 @@ runButton.addEventListener("click", async (ev) => {
 	} catch (e) {
 		window.alert(e instanceof Error ? e.message : String(e));
 		onStop();
-		clearOutput();
+		resetOutput(outputBindings);
 	} finally {
-		stopButton.removeEventListener("click", onStop);
+		dom.stopButton.removeEventListener("click", onStop);
 	}
 });
-stopButton.addEventListener("click", (ev) => {
-	clearOutput();
-	runButton.disabled = false;
-	stepButton.disabled = true;
-	speedInput.disabled = false;
+
+dom.stopButton.addEventListener("click", () => {
+	resetOutput(outputBindings);
+	dom.runButton.disabled = false;
+	dom.stepButton.disabled = true;
+	dom.speedInput.disabled = false;
 });
-function clearOutput() {
-	output.innerHTML = "";
 
-	const parent = document.createElement("div");
-	const addr = document.createElement("div");
-	const code = document.createElement("div");
-	const memory = document.createElement("div");
-	const mem10 = document.createElement("div");
-	addr.textContent = "addr";
-	code.textContent = "code";
-	memory.textContent = "memory";
-	mem10.textContent = "memory(10)";
-	mem10.classList.add("mem10");
-	parent.classList.add("header");
-	parent.appendChild(addr);
-	parent.appendChild(code);
-	parent.appendChild(memory);
-	parent.appendChild(mem10);
-	output.appendChild(parent);
-
-	accOutput.textContent = "0";
-	idxOutput.textContent = "0";
-	pcOutput.textContent = "0";
-	stepsOutput.textContent = "0";
+function getDomRefs(): DomRefs {
+	return {
+		programInput: document.querySelector<HTMLTextAreaElement>("#program")!,
+		lineNumberInput: document.querySelector<HTMLTextAreaElement>("#linenum")!,
+		runButton: document.querySelector<HTMLButtonElement>("#run")!,
+		stepButton: document.querySelector<HTMLButtonElement>("#step")!,
+		stopButton: document.querySelector<HTMLButtonElement>("#stop")!,
+		speedInput: document.querySelector<HTMLInputElement>("#speed")!,
+		speedLabel: document.querySelector<HTMLDivElement>("#speedlabel")!,
+	};
 }
-function genOutput(length: number) {
-	const outputEls: {
-		parent: HTMLDivElement;
-		addr: HTMLDivElement;
-		code: HTMLDivElement;
-		memory: HTMLDivElement;
-		mem10: HTMLDivElement;
-	}[] = [];
-	for (let i = 0; i < length; i++) {
-		const parent = document.createElement("div");
-		const addr = document.createElement("div");
-		const code = document.createElement("div");
-		const memory = document.createElement("div");
-		const mem10 = document.createElement("div");
-		mem10.classList.add("mem10");
-		parent.appendChild(addr);
-		parent.appendChild(code);
-		parent.appendChild(memory);
-		parent.appendChild(mem10);
-		outputEls.push({ parent, addr, code, memory, mem10 });
-		output.appendChild(parent);
-	}
-	const update = (
-		memdata: {
-			addr: number;
-			memory: number;
-			code: string;
-		}[],
-		regdata: {
-			pc: number;
-			acc: number;
-			idx: number;
-			step: number;
-		},
-	) => {
-		for (let i = 0; i < length; i++) {
-			const { addr, code, memory } = memdata[i];
-			outputEls[i].addr.textContent = addr.toString(10);
-			outputEls[i].code.textContent = code;
-			outputEls[i].memory.textContent = memory.toString(16);
-			outputEls[i].mem10.textContent = memory.toString(10);
-		}
-		stepsOutput.textContent = regdata.step.toString(10);
-		pcOutput.textContent = regdata.pc.toString(10);
-		accOutput.textContent = regdata.acc.toString(10);
-		idxOutput.textContent = regdata.idx.toString(10);
-	};
-	const hilight = (
-		target:
-			| {
-					pc: number;
-					affects: (number | "acc" | "idx")[];
-			  }
-			| undefined,
-	) => {
-		if (target == null) return;
-		for (const el of outputEls) {
-			el.parent.classList.remove("pc-hilight");
-			el.parent.classList.remove("affect-highlight");
-		}
-		accOutput.classList.remove("affect-highlight");
-		idxOutput.classList.remove("affect-highlight");
-		outputEls[target.pc]?.parent.classList.add("pc-hilight");
-		for (const affect of target.affects) {
-			if (affect === "acc") {
-				accOutput.classList.add("affect-highlight");
-			} else if (affect === "idx") {
-				idxOutput.classList.add("affect-highlight");
-			} else {
-				outputEls[affect]?.parent.classList.add("affect-highlight");
-			}
-		}
-	};
-	return [update, hilight] as const;
+
+function initializeLineNumbers(programInput: HTMLTextAreaElement, lineNumberInput: HTMLTextAreaElement) {
+	const count = programInput.value.split("\n").length;
+	updateLineNumbers(lineNumberInput, count);
+	return count;
+}
+
+function updateLineNumbers(lineNumberInput: HTMLTextAreaElement, count: number) {
+	lineNumberInput.value = Array.from({ length: count }, (_, i) => i).join("\n");
+}
+
+function syncLineNumberWidth(lineNumberInput: HTMLTextAreaElement) {
+	lineNumberInput.style.width = "0px";
+	lineNumberInput.style.width = `${Math.max(30, lineNumberInput.scrollWidth + 10)}px`;
+}
+
+function resizeEditorContainer(programInput: HTMLTextAreaElement) {
+	programInput.parentElement!.style.height = "0px";
+	programInput.parentElement!.style.height = `${programInput.scrollHeight + 1}px`;
+}
+
+function formatSpeedLabel(value: number, speedDelaysMs: number[]) {
+	if (value === 0) return "ステップ実行";
+	if (value === 5) return "最速";
+	return `${speedDelaysMs[value]}ms/step`;
 }

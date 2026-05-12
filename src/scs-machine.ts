@@ -1,40 +1,98 @@
 import { assertValidLabel, isLabel, isNumber, type operandTable, parseNumber, parseOperand } from "./util";
 
-export class SCS {
-	public running = false;
+export type RegisterState = {
+	pc: number;
+	acc: number;
+	idx: number;
+	step: number;
+};
 
-	private lines: string[];
+export type MemoryRow = {
+	addr: number;
+	memory: number;
+	code: string;
+};
+
+export type StepResult = {
+	pc: number;
+	affects: (number | "acc" | "idx")[];
+};
+
+type OpCode = (typeof operandTable)[keyof typeof operandTable]["op"][number];
+
+export class ScsMachine {
+	public running = false;
 	public lineCount = 0;
+	public stepCount = 0;
+	public onStop: (() => void) | undefined = undefined;
+
+	private programLines: string[];
 	private memory: number[] = [];
-	private labelMap = new Map<string, number>();
+	private labelAddressMap = new Map<string, number>();
 
 	private pc = 0;
 	private acc = 0;
 	private idx = 0;
-	public stepCount = 0;
-
-	public onStop: (() => void) | undefined = undefined;
 
 	constructor(program: string) {
-		this.lines = program.split("\n");
-		this.lineCount = this.lines.length;
+		this.programLines = program.split("\n");
+		this.lineCount = this.programLines.length;
 	}
 
 	compile() {
-		this.labelMap.clear();
-		this.memory = new Array(this.lines.length).fill(0);
-		for (let lineCount = 0; lineCount < this.lines.length; lineCount++) {
-			const line = this.lines[lineCount];
-			if (!line.includes(":")) continue;
-			const [_label, _code] = line.split(":");
-			if (_code.includes(":")) throw new Error(`Invalid ":" at addr ${lineCount}: ${line}`);
-			const label = _label.trim();
-			assertValidLabel(label, lineCount);
-			if (this.labelMap.has(label)) throw new Error(`Duplicate label at addr ${lineCount}: ${label}`);
-			this.labelMap.set(label, lineCount);
+		this.resetForCompile();
+		this.collectLabels();
+		this.encodeInstructions();
+	}
+
+	step(): StepResult | undefined {
+		if (!this.running) return;
+		if (this.pc < 0 || this.pc >= this.memory.length) {
+			this.running = false;
+			this.onStop?.();
+			throw new Error(`PC out of bounds: ${this.pc}`);
 		}
-		for (let lineCount = 0; lineCount < this.lines.length; lineCount++) {
-			const line = this.lines[lineCount];
+		this.stepCount++;
+		const instruction = this.memory[this.pc];
+		const opcode = ((instruction >> 16) & 0xff) as OpCode;
+		const arg = instruction & 0xffff;
+		return { pc: this.pc, affects: this.executeOpcode(opcode, arg) };
+	}
+
+	getRegisters(): RegisterState {
+		return {
+			pc: this.pc,
+			acc: this.acc,
+			idx: this.idx,
+			step: this.stepCount,
+		};
+	}
+
+	getOutput(): MemoryRow[] {
+		return this.memory.map((value, index) => ({ addr: index, memory: value, code: this.programLines[index] }));
+	}
+
+	private resetForCompile() {
+		this.labelAddressMap.clear();
+		this.memory = new Array(this.programLines.length).fill(0);
+	}
+
+	private collectLabels() {
+		for (let lineCount = 0; lineCount < this.programLines.length; lineCount++) {
+			const line = this.programLines[lineCount];
+			if (!line.includes(":")) continue;
+			const [labelPart, codePart] = line.split(":");
+			if (codePart.includes(":")) throw new Error(`Invalid ":" at addr ${lineCount}: ${line}`);
+			const label = labelPart.trim();
+			assertValidLabel(label, lineCount);
+			if (this.labelAddressMap.has(label)) throw new Error(`Duplicate label at addr ${lineCount}: ${label}`);
+			this.labelAddressMap.set(label, lineCount);
+		}
+	}
+
+	private encodeInstructions() {
+		for (let lineCount = 0; lineCount < this.programLines.length; lineCount++) {
+			const line = this.programLines[lineCount];
 			let code: string;
 			if (line.includes(":")) {
 				code = line.split(":")[1].trim();
@@ -59,41 +117,17 @@ export class SCS {
 				argValue = parseNumber(arg) & 0xffff;
 			} else if (isLabel(arg)) {
 				opcode = parseOperand(operand, lineCount, true);
-				const _argValue = this.labelMap.get(arg);
-				if (_argValue === undefined) throw new Error(`Undefined label at addr ${lineCount}: ${arg}`);
-				argValue = _argValue & 0xffff;
+				const resolved = this.labelAddressMap.get(arg);
+				if (resolved === undefined) throw new Error(`Undefined label at addr ${lineCount}: ${arg}`);
+				argValue = resolved & 0xffff;
 			} else {
 				throw new Error(`Invalid operand at addr ${lineCount}: ${arg}`);
 			}
 			this.memory[lineCount] = (opcode << 16) | argValue;
 		}
 	}
-	step() {
-		if (!this.running) return;
-		if (this.pc < 0 || this.pc >= this.memory.length) {
-			this.running = false;
-			this.onStop?.();
-			throw new Error(`PC out of bounds: ${this.pc}`);
-		}
-		this.stepCount++;
-		const instruction = this.memory[this.pc];
-		const opcode = ((instruction >> 16) & 0xff) as OpCode;
-		const arg = instruction & 0xffff;
-		return { pc: this.pc, affects: this.exec(opcode, arg) };
-	}
-	getRegisters() {
-		return {
-			pc: this.pc,
-			acc: this.acc,
-			idx: this.idx,
-			step: this.stepCount,
-		};
-	}
-	getOutput() {
-		return this.memory.map((v, i) => ({ addr: i, memory: v, code: this.lines[i] }));
-	}
 
-	private exec(opcode: OpCode, arg: number): (number | "acc" | "idx")[] {
+	private executeOpcode(opcode: OpCode, arg: number): (number | "acc" | "idx")[] {
 		switch (opcode) {
 			case 0x00:
 			case 0x01: {
@@ -270,4 +304,3 @@ export class SCS {
 		}
 	}
 }
-type OpCode = (typeof operandTable)[keyof typeof operandTable]["op"][number];
