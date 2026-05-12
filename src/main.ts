@@ -200,14 +200,14 @@ function genOutput(length: number) {
 		}
 		accOutput.classList.remove("affect-highlight");
 		idxOutput.classList.remove("affect-highlight");
-		outputEls[target.pc].parent.classList.add("pc-hilight");
+		outputEls[target.pc]?.parent.classList.add("pc-hilight");
 		for (const affect of target.affects) {
 			if (affect === "acc") {
 				accOutput.classList.add("affect-highlight");
 			} else if (affect === "idx") {
 				idxOutput.classList.add("affect-highlight");
 			} else {
-				outputEls[affect].parent.classList.add("affect-highlight");
+				outputEls[affect]?.parent.classList.add("affect-highlight");
 			}
 		}
 	};
