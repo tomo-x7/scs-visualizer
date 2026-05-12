@@ -3,13 +3,55 @@
 
 <head>
 	<meta charset="UTF-8" />
-	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<title>scs-visualizer</title>
 </head>
 
 <body>
-	<div id="app"></div>
+	<h1>A Small Computer Simulator Visualizer</h1>
+	<div id="app">
+		<div id="left">
+			<div id="writehere">Write code here</div>
+			<div id="inputs">
+				<textarea id="linenum" readonly></textarea>
+				<textarea id="program"></textarea>
+			</div>
+			<div id="codeb">
+				<button type="button" class="hidden" onclick="document.body.classList.add('nocode')">Hidden</button>
+				<button type="button" class="show" onclick="document.body.classList.remove('nocode')">Show</button>
+			</div>
+		</div>
+		<div id="outputs">
+			<div id="memories"></div>
+			<div id="registers">
+				<div id="steps">
+					<div class="label">steps</div>
+					<div class="value">0</div>
+				</div>
+				<div id="pc">
+					<div class="label">pc</div>
+					<div class="value">0</div>
+				</div>
+				<div id="acc">
+					<div class="label">acc</div>
+					<div class="value">0</div>
+				</div>
+				<div id="idx">
+					<div class="label">idx</div>
+					<div class="value">0</div>
+				</div>
+				<div id="controls">
+					<button id="run">Run</button>
+					<button id="step" disabled>Step</button>
+					<button id="stop">Reset</button>
+					<div>
+						<div id="speedlabel"></div>
+						<input type="range" id="speed" min="0" max="5" step="1">
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
 	<script type="module" src="/src/main.ts"></script>
 </body>
 
