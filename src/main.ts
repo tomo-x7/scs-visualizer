@@ -1,6 +1,6 @@
 import "./style.css";
 import { ScsMachine } from "./scs-machine";
-import { createOutputRenderer, resetOutput, type OutputBindings, type OutputRenderer } from "./ui/output";
+import { createOutputRenderer, type OutputBindings, type OutputRenderer, resetOutput } from "./ui/output";
 import { clamp } from "./util";
 
 type DomRefs = {
