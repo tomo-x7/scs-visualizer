@@ -93,6 +93,7 @@ dom.runButton.addEventListener("click", async () => {
 			updateOutput();
 			dom.stepButton.disabled = false;
 		} else {
+			const start = performance.now();
 			while (machine.running) {
 				const res = machine.step();
 				// if (machine.stepCount > 1000) throw new Error("Too many steps, possible infinite loop");
@@ -107,6 +108,8 @@ dom.runButton.addEventListener("click", async () => {
 					await new Promise((resolve) => setTimeout(resolve, speedDelaysMs[selectedSpeed]));
 				}
 			}
+			const end = performance.now();
+			console.log(`Execution finished in ${(end - start).toFixed(5)}ms, ${machine.stepCount} steps`);
 			if (!manualReset) {
 				updateOutput();
 			}
