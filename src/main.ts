@@ -109,7 +109,7 @@ dom.runButton.addEventListener("click", async () => {
 				}
 			}
 			const end = performance.now();
-			console.log(`Execution finished in ${(end - start).toFixed(5)}ms, ${machine.stepCount} steps`);
+			console.log(`Execution finished in ${(end - start).toFixed(3)}ms, ${machine.stepCount} steps`);
 			if (!manualReset) {
 				updateOutput();
 			}
