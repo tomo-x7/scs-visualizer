@@ -7,6 +7,7 @@ type DomRefs = {
 	programInput: HTMLTextAreaElement;
 	lineNumberInput: HTMLTextAreaElement;
 	runButton: HTMLButtonElement;
+	pauseButton: HTMLButtonElement;
 	stepButton: HTMLButtonElement;
 	stopButton: HTMLButtonElement;
 	speedInput: HTMLInputElement;
@@ -38,6 +39,8 @@ resizeEditorContent(dom.programInput, dom.lineNumberInput);
 let activeMachine: ScsMachine | null = null;
 let activeRenderer: OutputRenderer | null = null;
 let manualReset = false;
+let isPaused = false;
+let resumeWaiters: Array<() => void> = [];
 
 dom.hideCodeButton.addEventListener("click", () => setCodeVisibility(false));
 dom.showCodeButton.addEventListener("click", () => setCodeVisibility(true));
@@ -57,10 +60,17 @@ dom.speedInput.addEventListener("input", (ev) => {
 	const target = ev.target as HTMLInputElement;
 	speedIndex = clamp(0, Number(target.value), speedDelaysMs.length - 1);
 	updateSpeedLabel();
+	if (activeMachine?.running) {
+		if (speedIndex === 0 && !isPaused) {
+			setPaused(true);
+		} else {
+			applyUiState();
+		}
+	}
 });
 
 dom.stepButton.addEventListener("click", () => {
-	if (!activeMachine || !activeRenderer || !activeMachine.running) return;
+	if (!activeMachine || !activeRenderer || !activeMachine.running || !isPaused) return;
 	try {
 		const res = activeMachine.step();
 		activeRenderer.update(activeMachine.getOutput(), activeMachine.getRegisters());
@@ -71,17 +81,18 @@ dom.stepButton.addEventListener("click", () => {
 	}
 });
 
+dom.pauseButton.addEventListener("click", () => {
+	if (!activeMachine?.running) return;
+	if (speedIndex === 0) return;
+	setPaused(!isPaused);
+});
+
 dom.runButton.addEventListener("click", async () => {
 	manualReset = false;
 	resetOutput(outputBindings);
-	setUiRunning();
-	const selectedSpeed = speedIndex;
 	const machine = new ScsMachine(dom.programInput.value);
 	activeMachine = machine;
-	const onStop = () => {
-		if (activeMachine !== machine) return;
-		setUiIdle();
-	};
+	const onStop = () => handleMachineStop(machine);
 	machine.onStop = onStop;
 	const renderer = createOutputRenderer(outputBindings, machine.lineCount);
 	activeRenderer = renderer;
@@ -89,39 +100,29 @@ dom.runButton.addEventListener("click", async () => {
 	try {
 		machine.compile();
 		machine.running = true;
-		if (selectedSpeed === 0) {
-			updateOutput();
-			dom.stepButton.disabled = false;
+		updateOutput();
+		if (speedIndex === 0) {
+			setPaused(true);
 		} else {
-			const start = performance.now();
-			while (machine.running) {
-				const res = machine.step();
-				// if (machine.stepCount > 1000) throw new Error("Too many steps, possible infinite loop");
-				if (selectedSpeed === 5) {
-					if (machine.stepCount % 10000 === 0) {
-						updateOutput();
-						await new Promise((resolve) => setTimeout(resolve, 0));
-					}
-				} else {
-					updateOutput();
-					renderer.highlight(res);
-					await new Promise((resolve) => setTimeout(resolve, speedDelaysMs[selectedSpeed]));
-				}
-			}
-			const end = performance.now();
-			console.log(`Execution finished in ${(end - start).toFixed(3)}ms, ${machine.stepCount} steps`);
-			if (!manualReset) {
-				updateOutput();
-			}
-			onStop();
+			setPaused(false);
 		}
+		const { autoSteps, durationMs } = await runLoop(machine, renderer, updateOutput);
+		if (autoSteps > 0) {
+			console.log(`Execution finished in ${durationMs.toFixed(3)}ms, ${machine.stepCount} steps`);
+		}
+		if (!manualReset) {
+			updateOutput();
+		}
+		onStop();
 	} catch (e) {
 		window.alert(e instanceof Error ? e.message : String(e));
 		stopAndReset();
 	} finally {
-		if (selectedSpeed !== 0 && activeMachine === machine) {
+		if (activeMachine === machine) {
 			activeMachine = null;
 			activeRenderer = null;
+			isPaused = false;
+			applyUiState();
 		}
 		manualReset = false;
 	}
@@ -136,6 +137,7 @@ function getDomRefs(): DomRefs {
 		programInput: document.querySelector<HTMLTextAreaElement>("#program")!,
 		lineNumberInput: document.querySelector<HTMLTextAreaElement>("#linenum")!,
 		runButton: document.querySelector<HTMLButtonElement>("#run")!,
+		pauseButton: document.querySelector<HTMLButtonElement>("#pause")!,
 		stepButton: document.querySelector<HTMLButtonElement>("#step")!,
 		stopButton: document.querySelector<HTMLButtonElement>("#stop")!,
 		speedInput: document.querySelector<HTMLInputElement>("#speed")!,
@@ -170,6 +172,10 @@ function updateSpeedLabel() {
 	dom.speedLabel.textContent = formatSpeedLabel(speedIndex, speedDelaysMs);
 }
 
+function updatePauseButtonLabel() {
+	dom.pauseButton.textContent = isPaused ? "Resume" : "Pause";
+}
+
 function setCodeVisibility(visible: boolean) {
 	document.body.classList.toggle("nocode", !visible);
 }
@@ -177,13 +183,49 @@ function setCodeVisibility(visible: boolean) {
 function setUiRunning() {
 	dom.runButton.disabled = true;
 	dom.stepButton.disabled = true;
-	dom.speedInput.disabled = true;
+	dom.pauseButton.disabled = speedIndex === 0;
+	dom.speedInput.disabled = false;
+	updatePauseButtonLabel();
 }
 
 function setUiIdle() {
 	dom.runButton.disabled = false;
+	dom.pauseButton.disabled = true;
 	dom.stepButton.disabled = true;
 	dom.speedInput.disabled = false;
+	updatePauseButtonLabel();
+}
+
+function setUiPaused() {
+	dom.runButton.disabled = true;
+	dom.pauseButton.disabled = speedIndex === 0;
+	dom.stepButton.disabled = false;
+	dom.speedInput.disabled = false;
+	updatePauseButtonLabel();
+}
+
+function applyUiState() {
+	if (!activeMachine?.running) {
+		setUiIdle();
+		return;
+	}
+	if (isPaused) {
+		setUiPaused();
+		return;
+	}
+	setUiRunning();
+}
+
+function setPaused(paused: boolean) {
+	if (isPaused === paused) {
+		applyUiState();
+		return;
+	}
+	isPaused = paused;
+	applyUiState();
+	if (!isPaused) {
+		notifyResumeWaiters();
+	}
 }
 
 function stopAndReset() {
@@ -191,14 +233,70 @@ function stopAndReset() {
 	if (activeMachine) {
 		activeMachine.running = false;
 	}
+	isPaused = false;
+	notifyResumeWaiters();
 	activeMachine = null;
 	activeRenderer = null;
 	resetOutput(outputBindings);
-	setUiIdle();
+	applyUiState();
 }
 
 function formatSpeedLabel(value: number, speedDelaysMs: number[]) {
 	if (value === 0) return "ステップ実行";
 	if (value === 5) return "最速";
 	return `${speedDelaysMs[value]}ms/step`;
+}
+
+function handleMachineStop(machine: ScsMachine) {
+	if (activeMachine !== machine) return;
+	isPaused = false;
+	notifyResumeWaiters();
+	applyUiState();
+}
+
+function notifyResumeWaiters() {
+	if (resumeWaiters.length === 0) return;
+	const waiters = resumeWaiters;
+	resumeWaiters = [];
+	for (const resolve of waiters) {
+		resolve();
+	}
+}
+
+function waitForResume() {
+	if (!activeMachine?.running) return Promise.resolve();
+	if (!isPaused && speedIndex !== 0) return Promise.resolve();
+	return new Promise<void>((resolve) => {
+		resumeWaiters.push(resolve);
+	});
+}
+
+async function runLoop(machine: ScsMachine, renderer: OutputRenderer, updateOutput: () => void) {
+	const start = performance.now();
+	let stepsSinceOutput = 0;
+	let autoSteps = 0;
+	while (machine.running) {
+		await waitForResume();
+		if (!machine.running) break;
+		if (isPaused || speedIndex === 0) {
+			continue;
+		}
+		const res = machine.step();
+		autoSteps++;
+		// if (machine.stepCount > 1000) throw new Error("Too many steps, possible infinite loop");
+		if (speedIndex === 5) {
+			stepsSinceOutput++;
+			if (stepsSinceOutput >= 10000) {
+				updateOutput();
+				stepsSinceOutput = 0;
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
+		} else {
+			stepsSinceOutput = 0;
+			updateOutput();
+			renderer.highlight(res);
+			await new Promise((resolve) => setTimeout(resolve, speedDelaysMs[speedIndex]));
+		}
+	}
+	return { autoSteps, durationMs: performance.now() - start };
 }
