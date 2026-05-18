@@ -77,7 +77,7 @@ dom.stepButton.addEventListener("click", () => {
 		activeRenderer.highlight(res);
 	} catch (e) {
 		window.alert(e instanceof Error ? e.message : String(e));
-		stopAndReset();
+		stop();
 	}
 });
 
@@ -94,11 +94,11 @@ dom.runButton.addEventListener("click", async () => {
 	activeMachine = machine;
 	const onStop = () => handleMachineStop(machine);
 	machine.onStop = onStop;
-	const renderer = createOutputRenderer(outputBindings, machine.lineCount);
-	activeRenderer = renderer;
-	const updateOutput = () => renderer.update(machine.getOutput(), machine.getRegisters());
 	try {
 		machine.compile();
+		const renderer = createOutputRenderer(outputBindings, machine.lineCount);
+		activeRenderer = renderer;
+		const updateOutput = () => renderer.update(machine.getOutput(), machine.getRegisters());
 		machine.running = true;
 		updateOutput();
 		if (speedIndex === 0) {
@@ -116,7 +116,7 @@ dom.runButton.addEventListener("click", async () => {
 		onStop();
 	} catch (e) {
 		window.alert(e instanceof Error ? e.message : String(e));
-		stopAndReset();
+		stop();
 	} finally {
 		if (activeMachine === machine) {
 			activeMachine = null;
@@ -226,6 +226,18 @@ function setPaused(paused: boolean) {
 	if (!isPaused) {
 		notifyResumeWaiters();
 	}
+}
+
+function stop() {
+	manualReset = true;
+	if (activeMachine) {
+		activeMachine.running = false;
+	}
+	isPaused = false;
+	notifyResumeWaiters();
+	activeMachine = null;
+	activeRenderer = null;
+	applyUiState();
 }
 
 function stopAndReset() {
