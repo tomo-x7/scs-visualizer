@@ -105,7 +105,7 @@ export class ScsMachine {
 			let opcode: number;
 			let argValue: number;
 			if (arg == null || arg === "") {
-				if (isNumber(operand)) {
+				if (isNumber(operand, true)) {
 					opcode = 0;
 					argValue = parseNumber(operand);
 				} else {

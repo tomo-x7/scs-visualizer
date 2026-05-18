@@ -1,16 +1,30 @@
-export function isNumber(str: string): boolean {
-	if (str.startsWith("0x") || str.startsWith("0X")) return /^0x[\da-f]+$/i.test(str);
-	return /^(0b|0o|0d|0x)?[\d]+$/i.test(str);
+export function isNumber(str: string, allowMinus?: boolean): boolean {
+	if (!isValidNumberLike(str)) return false;
+	try {
+		const n = parseNumber(str);
+		if (Number.isNaN(n)) return false;
+		if (allowMinus) {
+			return true;
+		} else {
+			return n >= 0;
+		}
+	} catch {
+		return false;
+	}
+}
+export function isValidNumberLike(str: string) {
+	if (str.startsWith("0x") || str.startsWith("0X")) return /^0x[\da-f-]+$/i.test(str);
+	return /^(0b|0o|0d|0x)?[\d-]+$/i.test(str);
 }
 export function parseNumber(str: string): number {
 	str = str.toLowerCase();
-	if (str.startsWith("0b") || str.startsWith("0B")) {
+	if (str.startsWith("0b")) {
 		return parseInt(str.slice(2), 2);
-	} else if (str.startsWith("0o") || str.startsWith("0O")) {
+	} else if (str.startsWith("0o")) {
 		return parseInt(str.slice(2), 8);
-	} else if (str.startsWith("0d") || str.startsWith("0D")) {
+	} else if (str.startsWith("0d")) {
 		return parseInt(str.slice(2), 10);
-	} else if (str.startsWith("0x") || str.startsWith("0X")) {
+	} else if (str.startsWith("0x")) {
 		return parseInt(str.slice(2), 16);
 	} else {
 		return parseInt(str, 10);
